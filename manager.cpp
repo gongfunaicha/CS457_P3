@@ -7,8 +7,10 @@
 #include <vector>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <strings.h>
 
 using namespace std;
 
@@ -75,6 +77,7 @@ int main(int argc, char* argv[]) {
         {
             // Should be cost_info line
             PutCostinfoIntoVector(line, v_cost_info);
+            // Already duplicate infomation in v_cost_info
         }
     }
 
@@ -130,6 +133,118 @@ int main(int argc, char* argv[]) {
     else
     {
         // Parent process here
+
+        // Accept connection from children
+        vector<int> vector_of_socket;
+        for (int i = 0; i < num_of_routers; i++)
+        {
+            struct sockaddr_in client_ip;
+            socklen_t len = sizeof(client_ip);
+            int connected_sock = 0;
+            connected_sock = accept(listensock, (struct sockaddr *) &client_ip,  &len);
+            if (connected_sock == -1)
+            {
+                // Error when accepting
+                cerr << "Error when accepting TCP connection from router." << endl;
+                return -1;
+            }
+            vector_of_socket.push_back(connected_sock);
+        }
+
+        // Get port information from all the routers
+        vector<int> vector_of_ports;
+        for (int i = 0; i < num_of_routers; i++)
+        {
+            char portinfo[100];
+            bzero(portinfo, 100);
+            recv(vector_of_socket.at(i), portinfo, 100, 0);
+            // TODO: handle incoming port packets and put into vector_of_ports
+        }
+
+        // Send node number, neighbour info, cost info, port info to each of the routers
+        for (int i = 0; i < num_of_routers; i++)
+        {
+            // TODO: send required info to all of the routers
+        }
+
+        // Receive ready message from all the routers
+        for (int i = 0; i < num_of_routers; i++)
+        {
+            char readymsg[100];
+            bzero(readymsg, 100);
+            recv(vector_of_socket.at(i), readymsg, 100, 0);
+            // TODO: handle incoming ready message
+        }
+
+        // Send info that is safe to reach neighbours
+        for (int i = 0; i < num_of_routers; i++)
+        {
+            // TODO: Send info that is safe to reach neighbours
+        }
+
+        // Receive link up message from all the routers
+        for (int i = 0; i < num_of_routers; i++)
+        {
+            char linkupmsg[100];
+            bzero(linkupmsg, 100);
+            recv(vector_of_socket.at(i), linkupmsg, 100, 0);
+            // TODO: handle incoming link up message
+        }
+
+        // Send info that network is up
+        for (int i = 0; i < num_of_routers; i++)
+        {
+            // TODO: Send info that network is up
+        }
+
+        // Receive forwarding table up message from all the routers
+        for (int i = 0; i < num_of_routers; i++)
+        {
+            char forwardingtableup[100];
+            bzero(forwardingtableup, 100);
+            recv(vector_of_socket.at(i), forwardingtableup, 100, 0);
+            // TODO: handle incoming link up message
+        }
+
+        // Send info that network is ready to send packet
+        for (int i = 0; i < num_of_routers; i++)
+        {
+            // TODO: Send info that network is ready to send packet
+        }
+
+        while (getline(topology_file, line))
+        {
+            if (line.at(0) == '-')
+            {
+                // Might be -1, use method to check
+                int number = ReadNumberFromString(line);
+                if (number != -1)
+                    cerr << "Error when reading packet transmit information." << endl;
+                break;
+            }
+            else
+            {
+
+            }
+        }
+
+        // Signal all routers need to quit
+        for (int i = 0; i < num_of_routers; i++)
+        {
+            // TODO: Signal all routers need to quit
+
+            // Close the socket of that router
+            close(vector_of_socket.at(i));
+
+            // Then wait for that exact pid to quit
+            int status;
+            waitpid(vector_of_children.at(i), &status, 0);
+        }
+
+        // Manager can now terminate
+        close(listensock);
+        topology_file.close();
+        return 0;
     }
     return 0;
 }
