@@ -90,8 +90,7 @@ int main(int argc, char* argv[]) {
     for(port = 50000; port < 64000; port++) {
         server_ip.sin_port = htons(port);        //htons makes sure that the port number is converted to big.
         server_ip.sin_addr.s_addr = INADDR_ANY; //INADDR_ANY gets the address of the server
-        int ret = bind(listensock, (struct sockaddr *) &server_ip,
-                 sizeof(server_ip)); //binds the socket to the server's ip address--for some stupid reason it requires that you typecast the sockaddr_in to sock_addr.
+        int ret = ::bind(listensock, (struct sockaddr *) &server_ip, sizeof(server_ip)); //binds the socket to the server's ip address--for some stupid reason it requires that you typecast the sockaddr_in to sock_addr.
         if (ret == -1) {
             continue;
         } else {
