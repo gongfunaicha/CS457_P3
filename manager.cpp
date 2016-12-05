@@ -12,6 +12,8 @@
 #include <arpa/inet.h>
 #include <strings.h>
 #include <cstring>
+#include <ctime>
+
 
 using namespace std;
 
@@ -21,6 +23,12 @@ int ReadNumberFromString(string s)
     int num;
     ss >> num;
     return num;
+}
+
+string getcurrenttime()
+{
+    time_t result = time(nullptr);
+    return asctime(localtime(&result));
 }
 
 void PutCostinfoIntoVector(string s, vector<cost_info>& v_cost_info)
@@ -40,6 +48,15 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     // Correct number of arguments
+    // First open output file
+    ofstream output_file;
+    output_file.open("manager.out");
+    if (!output_file.is_open())
+    {
+        cerr << "Error creating manager.out." << endl;
+        return -1;
+    }
+    // Then open input file
     ifstream topology_file;
     topology_file.open(argv[1]);
     if (!topology_file.is_open())
@@ -100,6 +117,7 @@ int main(int argc, char* argv[]) {
     }
     listen(listensock, 10);
     cout << "Server listen on port: " << port << endl;
+    output_file << "Server listen on port: " << port << " at " << getcurrenttime().c_str() << endl;
 
     // Start creating router process
     vector<pid_t> vector_of_children;
@@ -149,6 +167,7 @@ int main(int argc, char* argv[]) {
                 return -1;
             }
             vector_of_socket.push_back(connected_sock);
+            output_file << "Node " << i << " just connected at " << getcurrenttime().c_str() << endl;
         }
 
         // Get port information from all the routers
@@ -158,12 +177,14 @@ int main(int argc, char* argv[]) {
             uint16_t portinfo;
             recv(vector_of_socket.at(i), &portinfo, sizeof(portinfo), MSG_WAITALL);
             vector_of_ports.push_back(portinfo);
+            output_file << "Received port number: " << portinfo << "from node " << i << " at " << getcurrenttime().c_str() << endl;
         }
 
         // Send node number, neighbour info, cost info, port info to each of the routers
         for (int i = 0; i < num_of_routers; i++)
         {
             vector<cost_info> vector_adj;
+            output_file << "Sending message: ";
             for (int j = 0; j < v_cost_info.size(); j++)
             {
                 if (v_cost_info.at(j).src == i)
@@ -174,6 +195,7 @@ int main(int argc, char* argv[]) {
             bzero(sendbuffer, size);
             // Copy the node number into sendbuffer
             memcpy(sendbuffer, &i, sizeof(int));
+            output_file << "Assign node number " << i << ", having neighbour:\n";
             for (int j = 0; j < vector_adj.size(); j++)
             {
                 // Start point of copy
@@ -186,12 +208,14 @@ int main(int argc, char* argv[]) {
                 memcpy(sendbuffer + start, &cost, sizeof(int));
                 start += sizeof(int);
                 memcpy(sendbuffer + start, &port, sizeof(uint16_t));
+                output_file << neighbour << "at port " << port << " with link cost " << cost << endl;
             }
             // Sendbuffer should be ready, now send the length
             int32_t sendsize = size;
             send(vector_of_socket.at(i), &sendsize, sizeof(int32_t), 0);
             // Then send the actual buffer
             send(vector_of_socket.at(i), sendbuffer, sendsize, 0);
+            output_file << "at " << getcurrenttime().c_str() << endl;
         }
 
         // Receive ready message from all the routers
@@ -209,6 +233,7 @@ int main(int argc, char* argv[]) {
                 delete(readymsg);
                 return -1;
             }
+            output_file << "Received ready message from node " << i << " at " << getcurrenttime().c_str() << endl;
             delete(readymsg);
         }
 
@@ -221,6 +246,7 @@ int main(int argc, char* argv[]) {
             send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
             // Then send the actual buffer
             send(vector_of_socket.at(i), message.c_str(), length, 0);
+            output_file << "Sent it is safe to reach neighbours to node " << i << " at " << getcurrenttime().c_str() << endl;
         }
 
         // Receive link up message from all the routers
@@ -239,6 +265,7 @@ int main(int argc, char* argv[]) {
                 return -1;
             }
             delete(linkupmsg);
+            output_file << "Recieved link up message from node " << i << " at " << getcurrenttime().c_str() << endl;
         }
 
         // Send info that network is up
@@ -250,6 +277,7 @@ int main(int argc, char* argv[]) {
             send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
             // Then send the actual buffer
             send(vector_of_socket.at(i), message.c_str(), length, 0);
+            output_file << "Sent network up message to node " << i << " at " << getcurrenttime().c_str() << endl;
         }
 
         // Receive forwarding table up message from all the routers
@@ -268,6 +296,7 @@ int main(int argc, char* argv[]) {
                 return -1;
             }
             delete(forwardingtableupmsg);
+            output_file << "Received forwarding table up message from node " << i << " at " << getcurrenttime().c_str() << endl;
         }
 
         // Send info that network is ready to send packet
@@ -279,6 +308,7 @@ int main(int argc, char* argv[]) {
             send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
             // Then send the actual buffer
             send(vector_of_socket.at(i), message.c_str(), length, 0);
+            output_file << "Sent network is ready message to node " << i << " at " << getcurrenttime().c_str() << endl;
         }
 
         while (getline(topology_file, line))
@@ -307,6 +337,8 @@ int main(int argc, char* argv[]) {
             // Then send the actual buffer
             send(vector_of_socket.at(i), message.c_str(), length, 0);
 
+            output_file << "Sent quit message to node " << i << " at " << getcurrenttime().c_str() << endl;
+
             // Close the socket of that router
             close(vector_of_socket.at(i));
 
@@ -318,6 +350,7 @@ int main(int argc, char* argv[]) {
         // Manager can now terminate
         close(listensock);
         topology_file.close();
+        output_file.close();
         return 0;
     }
     return 0;
