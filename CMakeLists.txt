@@ -3,5 +3,5 @@ project(CS457_P3)
 
 set(CMAKE_CXX_STANDARD 11)
 
-set(SOURCE_FILES manager.cpp)
+set(SOURCE_FILES manager.cpp cost_info.cpp cost_info.h)
 add_executable(CS457_P3 ${SOURCE_FILES})
