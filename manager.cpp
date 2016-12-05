@@ -11,6 +11,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <strings.h>
+#include <cstring>
 
 using namespace std;
 
@@ -151,64 +152,133 @@ int main(int argc, char* argv[]) {
         }
 
         // Get port information from all the routers
-        vector<int> vector_of_ports;
+        vector<uint16_t> vector_of_ports;
         for (int i = 0; i < num_of_routers; i++)
         {
-            char portinfo[100];
-            bzero(portinfo, 100);
-            recv(vector_of_socket.at(i), portinfo, 100, 0);
-            // TODO: handle incoming port packets and put into vector_of_ports
+            uint16_t portinfo;
+            recv(vector_of_socket.at(i), &portinfo, sizeof(portinfo), MSG_WAITALL);
+            vector_of_ports.push_back(portinfo);
         }
 
         // Send node number, neighbour info, cost info, port info to each of the routers
         for (int i = 0; i < num_of_routers; i++)
         {
-            // TODO: send required info to all of the routers
+            vector<cost_info> vector_adj;
+            for (int j = 0; j < v_cost_info.size(); j++)
+            {
+                if (v_cost_info.at(j).src == i)
+                    vector_adj.push_back(v_cost_info[j]);
+            }
+            int size = sizeof(int) + vector_adj.size()*(2*sizeof(int) + sizeof(uint16_t));
+            char* sendbuffer = new char[size];
+            bzero(sendbuffer, size);
+            // Copy the node number into sendbuffer
+            memcpy(sendbuffer, &i, sizeof(int));
+            for (int j = 0; j < vector_adj.size(); j++)
+            {
+                // Start point of copy
+                int start = sizeof(int) + j * (2*sizeof(int) + sizeof(uint16_t));
+                int neighbour = vector_adj.at(j).dest;
+                int cost = vector_adj.at(j).cost;
+                uint16_t port = vector_of_ports.at(neighbour);
+                memcpy(sendbuffer + start, &neighbour, sizeof(int));
+                start += sizeof(int);
+                memcpy(sendbuffer + start, &cost, sizeof(int));
+                start += sizeof(int);
+                memcpy(sendbuffer + start, &port, sizeof(uint16_t));
+            }
+            // Sendbuffer should be ready, now send the length
+            int32_t sendsize = size;
+            send(vector_of_socket.at(i), &sendsize, sizeof(int32_t), 0);
+            // Then send the actual buffer
+            send(vector_of_socket.at(i), sendbuffer, sendsize, 0);
         }
 
         // Receive ready message from all the routers
         for (int i = 0; i < num_of_routers; i++)
         {
-            char readymsg[100];
-            bzero(readymsg, 100);
-            recv(vector_of_socket.at(i), readymsg, 100, 0);
-            // TODO: handle incoming ready message
+            uint32_t length;
+            recv(vector_of_socket.at(i), &length, sizeof(length), MSG_WAITALL);
+            char* readymsg = new char[length+1];
+            bzero(readymsg, length);
+            recv(vector_of_socket.at(i), readymsg, length, 0);
+            readymsg[length] = 0;
+            if (strcmp(readymsg, "Ready") != 0)
+            {
+                cerr << "Error when receving Ready message from router." << endl;
+                delete(readymsg);
+                return -1;
+            }
+            delete(readymsg);
         }
 
         // Send info that is safe to reach neighbours
         for (int i = 0; i < num_of_routers; i++)
         {
-            // TODO: Send info that is safe to reach neighbours
+            uint32_t length;
+            string message = "Safe to reach";
+            length = message.length();
+            send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
+            // Then send the actual buffer
+            send(vector_of_socket.at(i), message.c_str(), length, 0);
         }
 
         // Receive link up message from all the routers
         for (int i = 0; i < num_of_routers; i++)
         {
-            char linkupmsg[100];
-            bzero(linkupmsg, 100);
-            recv(vector_of_socket.at(i), linkupmsg, 100, 0);
-            // TODO: handle incoming link up message
+            uint32_t length;
+            recv(vector_of_socket.at(i), &length, sizeof(length), MSG_WAITALL);
+            char* linkupmsg = new char[length+1];
+            bzero(linkupmsg, length);
+            recv(vector_of_socket.at(i), linkupmsg, length, 0);
+            linkupmsg[length] = 0;
+            if (strcmp(linkupmsg, "Link up") != 0)
+            {
+                cerr << "Error when receving link is up message from router." << endl;
+                delete(linkupmsg);
+                return -1;
+            }
+            delete(linkupmsg);
         }
 
         // Send info that network is up
         for (int i = 0; i < num_of_routers; i++)
         {
-            // TODO: Send info that network is up
+            uint32_t length;
+            string message = "Network up";
+            length = message.length();
+            send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
+            // Then send the actual buffer
+            send(vector_of_socket.at(i), message.c_str(), length, 0);
         }
 
         // Receive forwarding table up message from all the routers
         for (int i = 0; i < num_of_routers; i++)
         {
-            char forwardingtableup[100];
-            bzero(forwardingtableup, 100);
-            recv(vector_of_socket.at(i), forwardingtableup, 100, 0);
-            // TODO: handle incoming link up message
+            uint32_t length;
+            recv(vector_of_socket.at(i), &length, sizeof(length), MSG_WAITALL);
+            char* forwardingtableupmsg = new char[length+1];
+            bzero(forwardingtableupmsg, length);
+            recv(vector_of_socket.at(i), forwardingtableupmsg, length, 0);
+            forwardingtableupmsg[length] = 0;
+            if (strcmp(forwardingtableupmsg, "Forwarding table up") != 0)
+            {
+                cerr << "Error when receving forwarding table is up message from router." << endl;
+                delete(forwardingtableupmsg);
+                return -1;
+            }
+            delete(forwardingtableupmsg);
         }
 
         // Send info that network is ready to send packet
         for (int i = 0; i < num_of_routers; i++)
         {
-            // TODO: Send info that network is ready to send packet
+            uint32_t length;
+            string message = "Ready to send packet";
+            length = message.length();
+            send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
+            // Then send the actual buffer
+            send(vector_of_socket.at(i), message.c_str(), length, 0);
         }
 
         while (getline(topology_file, line))
@@ -223,14 +293,19 @@ int main(int argc, char* argv[]) {
             }
             else
             {
-
+                // TODO: Initiate packet transmit
             }
         }
 
         // Signal all routers need to quit
         for (int i = 0; i < num_of_routers; i++)
         {
-            // TODO: Signal all routers need to quit
+            uint32_t length;
+            string message = "Quit";
+            length = message.length();
+            send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
+            // Then send the actual buffer
+            send(vector_of_socket.at(i), message.c_str(), length, 0);
 
             // Close the socket of that router
             close(vector_of_socket.at(i));
