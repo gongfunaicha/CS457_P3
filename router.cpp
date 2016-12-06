@@ -53,7 +53,7 @@ struct dijkstrainput{
     int udpsock;
     int udpport;
     ofstream& outputFile;
-    dijkstrainput(int currnode, int numnodes, vector<cost_info>& costinfo, vector<int>& forwardtable, int sock, int port, ofstream& output) : v_cost_info(costinfo), forwarding_table(forwardtable), outputFile(output)
+    dijkstrainput(int currnode, int numnodes, vector<cost_info> costinfo, vector<int>& forwardtable, int sock, int port, ofstream& output) : v_cost_info(costinfo), forwarding_table(forwardtable), outputFile(output)
     {
         currentnode = currnode;
         numofnodes = numnodes;
@@ -591,7 +591,7 @@ int main(int argc, char **argv)
                 string edgeoutput;
                 for (int j = 0; j < v_cost_info.size(); j++)
                 {
-                    if (v_cost_info.at(j).src < v_cost_info.at(j).dest)
+                    //if (v_cost_info.at(j).src < v_cost_info.at(j).dest)
                         edgeoutput += (to_string(v_cost_info.at(j).src) + " " + to_string(v_cost_info.at(j).dest) + " " + to_string(v_cost_info.at(j).cost) + "\n");
                 }
                 outputToFile("Gathered edge information:");

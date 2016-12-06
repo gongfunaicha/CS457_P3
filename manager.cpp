@@ -4,6 +4,7 @@
 #include <sstream>
 #include <string>
 #include "cost_info.h"
+#include "dijkstra.h"
 #include <vector>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -108,7 +109,6 @@ int main(int argc, char* argv[]) {
             // Already duplicate infomation in v_cost_info
         }
     }
-
     // Start a TCP server
     int listensock = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in server_ip;				//struct to hold the ip address of server
