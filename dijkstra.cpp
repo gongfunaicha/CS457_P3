@@ -3,6 +3,8 @@
 //
 #include "cost_info.h"
 #include "dijkstra.h"
+#include <ctime>
+#include <fstream>
 
 
 bool invector(vector<element> v, int target)
@@ -92,16 +94,16 @@ void update_adj(vector<element>& tentative, vector<element>& confirmed, vector<e
     }
 }
 
-void printout(vector<element>& confirmed, vector<element>& tentative)
+void printout(vector<element>& confirmed, vector<element>& tentative, ofstream& outputFile)
 {
-    cout << "List in confirmed: " << endl;
+    outputFile << "List in confirmed: " << endl;
     bool first_print = true;
     for (int i = 0 ; i < confirmed.size(); i++)
     {
         if (first_print)
             first_print = false;
         else
-            cout << ",";
+            outputFile << ",";
 
         int destination = confirmed.at(i).destination;
         int distance = confirmed.at(i).distance;
@@ -111,11 +113,11 @@ void printout(vector<element>& confirmed, vector<element>& tentative)
             strnexthop = "-";
         else
             strnexthop = to_string(nexthop);
-        cout << "(" << destination << "," << distance << "," << strnexthop << ")";
+        outputFile << "(" << destination << "," << distance << "," << strnexthop << ")";
     }
-    cout << endl ;
+    outputFile << endl ;
     first_print = true;
-    cout << "List in tentative: " << endl;
+    outputFile << "List in tentative: " << endl;
     for (int i = 0 ; i < tentative.size(); i++)
     {
         int destination = tentative.at(i).destination;
@@ -125,19 +127,19 @@ void printout(vector<element>& confirmed, vector<element>& tentative)
         int nexthop = tentative.at(i).nexthop;
         string strnexthop;
         if (!first_print)
-            cout << ",";
+            outputFile << ",";
         else
             first_print = false;
         if (nexthop == -1)
             strnexthop = "-";
         else
             strnexthop = to_string(nexthop);
-        cout << "(" << destination << "," << distance << "," << strnexthop << ")";
+        outputFile << "(" << destination << "," << distance << "," << strnexthop << ")";
     }
-    cout << endl ;
+    outputFile << endl << endl ;
 }
 
-vector<int> dijkstra(int current_node, vector<cost_info> v_cost_info, int num_of_nodes)
+vector<int> dijkstra(int current_node, vector<cost_info> v_cost_info, int num_of_nodes, ofstream& outputFile)
 {
     vector<element> pool;
     vector<element> confirmed;
@@ -165,8 +167,9 @@ vector<int> dijkstra(int current_node, vector<cost_info> v_cost_info, int num_of
         confirmed.push_back(tentative[smallestnode]);
         // Update adjcent distance
         update_adj(tentative, confirmed, pool, v_cost_info, numnode, distance, nexthop);
-        cout << "After round " << i++ << ": " << endl;
-        printout(confirmed, tentative);
+        time_t result = time(nullptr);
+        outputFile << "After round " << i++ << ": " << asctime(localtime(&result)) << endl;;
+        printout(confirmed, tentative, outputFile);
     }
 
     vector<int> forward_table(num_of_nodes, -1);

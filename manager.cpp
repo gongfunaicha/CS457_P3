@@ -321,6 +321,7 @@ int main(int argc, char* argv[]) {
             output_file << "Sent network is ready message to node " << i << " at " << getcurrenttime().c_str() << endl;
         }
 
+
         while (getline(topology_file, line))
         {
             if (line.at(0) == '-')
@@ -342,7 +343,9 @@ int main(int argc, char* argv[]) {
                 send(vector_of_socket.at(src), &length, sizeof(int32_t), 0);
                 // Then send the actual buffer
                 send(vector_of_socket.at(src), &dest, sizeof(int), 0);
-                output_file << "Sent command to initiate a packet to node " << dest << " to node " << src <<" at " << getcurrenttime().c_str() << endl;
+                output_file << "Sent command to initiate a packet from node " << dest << " to node " << src <<" at " << getcurrenttime().c_str() << endl;
+                usleep(500000);
+                output_file << "Sleep for half second for router to process the transmission at " << getcurrenttime().c_str() << endl;
             }
         }
 
@@ -363,7 +366,7 @@ int main(int argc, char* argv[]) {
 
             // Then wait for that exact pid to quit
             int status;
-            waitpid(vector_of_children.at(i), &status, 0);
+            usleep(500);
         }
 
         // Manager can now terminate

@@ -18,6 +18,8 @@
 #include <arpa/inet.h>
 #include <stdint.h>
 #include <fcntl.h>
+#include "cost_info.h"
+#include "dijkstra.h"
 
 using namespace std;
 
@@ -31,6 +33,10 @@ struct connection {
     struct sockaddr_in remaddr;     		/* remote address */
 };
 
+void* enforceack(void* ptr);
+int recv_message_from_manager(int tcpsock, int udpsock, uint16_t selfport);
+void* tcpthread(void* input);
+int recv_message_from_peer(int currentnode,int udpsock, vector<int> port, vector<int> forwardingtable);
 
 //message format that gets sent to the other nodes
 struct nodePath {
@@ -38,9 +44,35 @@ struct nodePath {
     int to;
     int distance;
 };
+
+struct dijkstrainput{
+    int currentnode;
+    vector<cost_info>& v_cost_info;
+    int numofnodes;
+    vector<int>& forwarding_table;
+    int udpsock;
+    int udpport;
+    ofstream& outputFile;
+    dijkstrainput(int currnode, int numnodes, vector<cost_info>& costinfo, vector<int>& forwardtable, int sock, int port, ofstream& output) : v_cost_info(costinfo), forwarding_table(forwardtable), outputFile(output)
+    {
+        currentnode = currnode;
+        numofnodes = numnodes;
+        udpsock = sock;
+        udpport = port;
+    }
+};
+
+struct tcpthreadinput
+{
+    int tcpsock;
+    int udpsock;
+    uint16_t selfport;
+};
+
 vector<nodePath*> allPaths;
 bool* pathsFrom;
 bool gotID = false;
+bool printededgeinfo = false;
 
 ofstream outputFile;
 string tempbuffer = "";
@@ -58,7 +90,22 @@ void outputToFile(string message) {
 }
 
 
-
+void* dijkstrathread(void* input)
+{
+    dijkstrainput* dinput = (dijkstrainput*)input;
+    dinput->forwarding_table = dijkstra(dinput->currentnode, dinput->v_cost_info, dinput->numofnodes, dinput->outputFile);
+    // Dijkstra over, time to stop
+    // First wait for 0.5 second for all the ACKs to stop
+    usleep(500);
+    struct sockaddr_in myaddr;
+    memset(&myaddr, 0, sizeof(myaddr));
+    myaddr.sin_family=AF_INET;
+    inet_pton(AF_INET,"127.0.0.1",&myaddr.sin_addr.s_addr);
+    myaddr.sin_port=htons(dinput->udpport);
+    char tosend = 2;
+    sendto(dinput->udpsock, &tosend, sizeof(char), 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+    return 0;
+}
 
 
 
@@ -86,7 +133,7 @@ void recv_network_up_message(int sock)
     recv(sock, &length, sizeof(length), MSG_WAITALL);
     char* networkupmsg = new char[length+1];
     bzero(networkupmsg, length);
-    recv(sock, networkupmsg, length, 0);
+    recv(sock, networkupmsg, length, MSG_WAITALL);
     networkupmsg[length] = 0;
     if (strcmp(networkupmsg, "Network up") != 0)
     {
@@ -95,7 +142,6 @@ void recv_network_up_message(int sock)
         exit(-1);
     }
     delete(networkupmsg);
-    outputToFile("Network is up, beginning algorithm");
 }
 
 void send_forwarding_table_up_message(int sock)
@@ -423,6 +469,7 @@ int main(int argc, char **argv)
     //send your link state to your direct neighbours
     sendLinkState();
 
+    vector<int> forwarding_table;
 
     //outer loop to wait infinitely
     for (;;) {
@@ -442,6 +489,12 @@ int main(int argc, char **argv)
         // cout << ntohs(addr.sin_port) << endl;
         if (recvlen > 0) {
 
+            if (buf[0] == 2)
+            {
+                // Break message
+                break;
+            }
+
             int seq;
             memcpy(&seq, buf + 1, sizeof(int));
 
@@ -452,7 +505,8 @@ int main(int argc, char **argv)
 
             //if this is an ACK
             if(buf[0] == 1) {
-                outputToFile("recieved ACK from node " + to_string(sender) + " with sequence number " + to_string(seq));
+                if (!printededgeinfo)
+                    outputToFile("recieved ACK from node " + to_string(sender) + " with sequence number " + to_string(seq));
                 receivedACK(seq);
             }
                 //otherwise this is data
@@ -474,7 +528,8 @@ int main(int argc, char **argv)
                 if(!pathsFrom[from]) {
                     pathsFrom[from] = true;
 
-                    outputToFile("(" + to_string(known) + ") Received link state information about node " + to_string(from) + " sent by node " + to_string(sender) + " seq(" + to_string(seq) +")");
+                    if (!printededgeinfo)
+                        outputToFile("(" + to_string(known) + ") Received link state information about node " + to_string(from) + " sent by node " + to_string(sender) + " seq(" + to_string(seq) +")");
 
                     for(int link = 0; link < count; link++) {
                         nodePath* path = (nodePath*) (buf + 1 + sizeof(int) * 4 + sizeof(nodePath) * link);
@@ -482,7 +537,8 @@ int main(int argc, char **argv)
                         dup->from = path->from;
                         dup->to = path->to;
                         dup->distance = path->distance;
-                        outputToFile("Received connection: " + to_string(dup->to) + " cost: " + to_string(dup->distance));
+                        if (!printededgeinfo)
+                            outputToFile("Received connection: " + to_string(dup->to) + " cost: " + to_string(dup->distance));
                         allPaths.push_back(dup);
                     }
 
@@ -510,7 +566,8 @@ int main(int argc, char **argv)
 
                     //discard this packet if we have already had it
                 else {
-                    outputToFile("discarding duplicate link state information from node " + to_string(from) + " sent by node " + to_string(conn->id));
+                    if (!printededgeinfo)
+                        outputToFile("discarding duplicate link state information from node " + to_string(from) + " sent by node " + to_string(conn->id));
                 }
             }
         } else {
@@ -519,19 +576,82 @@ int main(int argc, char **argv)
 
         //if we've receieved all the Data
         if(haveAllPaths()) {
-            //break;
-            // Do dijkstra
-            send_forwarding_table_up_message(tcpsock);
+            // Gather the edge info
+            if (!printededgeinfo)
+            {
+                send_forwarding_table_up_message(tcpsock);
+                vector<cost_info> v_cost_info;
+                for (int j = 0; j < allPaths.size(); j++)
+                {
+                    nodePath* p = allPaths.at(j);
+                    v_cost_info.push_back(cost_info(p->from, p->to, p->distance));
 
+                }
+                for (int j = 0; j < connectionCount; j++)
+                    v_cost_info.push_back(cost_info(myID, connections[j].id, connections[j].cost));
+                string edgeoutput;
+                for (int j = 0; j < v_cost_info.size(); j++)
+                {
+                    if (v_cost_info.at(j).src < v_cost_info.at(j).dest)
+                        edgeoutput += (to_string(v_cost_info.at(j).src) + " " + to_string(v_cost_info.at(j).dest) + " " + to_string(v_cost_info.at(j).cost) + "\n");
+                }
+                outputToFile("Gathered edge information:");
+                outputFile << edgeoutput << endl;
+                printededgeinfo = true;
+
+                // Start dijkstra thread
+                pthread_t thread;
+                dijkstrainput input(myID, nodeCount, v_cost_info, forwarding_table, udpSock, udpport, outputFile);
+                pthread_create(&thread, NULL, dijkstrathread, (void*)&input);
+                pthread_detach(thread);
+            }
         }
-        usleep(10);
+        usleep(250);
     }
 
     //send_forwarding_table_up_message(tcpsock);
 
+    // Getting ready for input packet
+    int32_t length;
+    recv(tcpsock, &length, sizeof(length), MSG_WAITALL);
+    char* readytosendpacketmsg = new char[length+1];
+    bzero(readytosendpacketmsg, length);
+    recv(tcpsock, readytosendpacketmsg, length, MSG_WAITALL);
+    readytosendpacketmsg[length] = 0;
+    if (strcmp(readytosendpacketmsg, "Ready to send packet") != 0)
+    {
+        cerr << "Error when receving ready to send packet message from manager. " << readytosendpacketmsg << endl;
+        delete(readytosendpacketmsg);
+        exit(-1);
+    }
+    delete(readytosendpacketmsg);
 
+    // Setup tcp recv
 
-    delete connections;
+    pthread_t thread;
+    tcpthreadinput tinput;
+    tinput.udpsock = udpSock;
+    tinput.selfport = (uint16_t)udpport;
+    tinput.tcpsock = tcpsock;
+    pthread_create(&thread, NULL, tcpthread, (void*)&tinput);
+
+    // Setup udp recv
+    // First create a vector<int> for the port
+    vector<int> port;
+    port.resize(nodeCount);
+    // Initialize the vector
+    for (int j = 0; j < port.size(); j++)
+        port[j] = 0;
+    for (int j = 0; j < connectionCount; j ++)
+        port[connections[j].id] = connections[j].port;
+    while (recv_message_from_peer(myID, udpSock, port,forwarding_table) != -1);
+
+    pthread_join(thread, NULL);
+
+    //delete connections;
+
+    outputToFile("Router quit");
+    outputFile.close();
 }
 
 int openUDPSocket() {
@@ -571,7 +691,7 @@ void openConnection(connection* conn) {
 void sendLinkState() {
     outputToFile("sending link state to connections");
 
-    int count = connectionCount - 1;
+    int count = connectionCount;
 
     for(int c = 0; c < connectionCount; c++) {
 
@@ -586,13 +706,13 @@ void sendLinkState() {
         memcpy(buffer + 1 + sizeof(int) * 3, &myID, sizeof(int));
 
         for(int o = 0; o < connectionCount; o++) {
-            if(c != o) {
+            //if(c != o) {
                 nodePath* path = (nodePath*) (buffer + 1 + sizeof(int) * 4 + sizeof(nodePath) * index);
                 path->from = myID;
                 path->to = connections[o].id;
                 path->distance = connections[o].cost;
                 index++;
-            }
+            //}
         }
 
         packet* p = new packet();
@@ -605,3 +725,193 @@ void sendLinkState() {
     }
 }
 
+bool ack = true;
+char* buffer = 0;
+struct sockaddr_in myaddr;
+int udpsocket = 0;
+pthread_t thread;
+void* enforceack(void* ptr)
+{
+    usleep(30000);
+    if (ack)
+    {
+        // ACK received, delete the buffer
+        delete(buffer);
+        buffer = 0;
+    }
+    else
+    {
+        // ACK not receive, try resend
+        sendto(udpsocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+        pthread_create(&thread, NULL, enforceack, NULL);
+        pthread_detach(thread);
+    }
+    return 0;
+}
+
+int recv_message_from_manager(int tcpsock, int udpsock, uint16_t selfport)
+{
+    int32_t length;
+    udpsocket = udpsock;
+    recv(tcpsock, &length, sizeof(int32_t), MSG_WAITALL);
+    if (length < 0)
+    {
+        // Send command
+        int dest;
+        recv(tcpsock, &dest, sizeof(int), MSG_WAITALL);
+        outputToFile("Received packet initiate request to node " + to_string(dest) + " from manager");
+        // Send udp packet to own udp server
+        memset(&myaddr, 0, sizeof(myaddr));
+        myaddr.sin_family=AF_INET;
+        inet_pton(AF_INET,"127.0.0.1",&myaddr.sin_addr.s_addr);
+        myaddr.sin_port=htons(selfport);
+        buffer = new char[1 + sizeof(int)];
+        buffer[0] = 'I'; // I for initiate
+        memcpy(buffer + sizeof(char), &dest, sizeof(int));
+        sendto(udpsock, buffer, sizeof(buffer), 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+        ack = false;
+        pthread_create(&thread, NULL, enforceack, NULL);
+        pthread_detach(thread);
+        return 0;
+    }
+    else
+    {
+        char* quitmsg = new char[length+1];
+        bzero(quitmsg, length);
+        recv(tcpsock, quitmsg, length, MSG_WAITALL);
+        quitmsg[length] = 0;
+        if (strcmp(quitmsg, "Quit") != 0)
+        {
+            cout << quitmsg << endl;
+            cerr << "Error when receving quit message from manager." << endl;
+            delete(quitmsg);
+            _exit(-1);
+        }
+        delete(quitmsg);
+        // Send udp packet to own udp server
+        memset(&myaddr, 0, sizeof(myaddr));
+        myaddr.sin_family=AF_INET;
+        inet_pton(AF_INET,"127.0.0.1",&myaddr.sin_addr.s_addr);
+        myaddr.sin_port=htons(selfport);
+        buffer = new char[5];
+        strcpy(buffer, "Quit");
+        sendto(udpsock, buffer, sizeof(buffer) - 1, 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+        ack = false;
+        pthread_create(&thread, NULL, enforceack, NULL);
+        pthread_join(thread, NULL);
+        return -1;
+    }
+}
+
+void* tcpthread(void* input)
+{
+    tcpthreadinput* tinput = (tcpthreadinput* ) input;
+    while (recv_message_from_manager(tinput->tcpsock, tinput->udpsock, tinput->selfport) != -1);
+    return 0;
+}
+
+int recv_message_from_peer(int currentnode,int udpsock, vector<int> port, vector<int> forwardingtable)
+{
+    struct sockaddr_in recvfromaddr;
+    socklen_t  addrlen = sizeof(recvfromaddr);
+    char BUF[1000];
+    bzero(BUF,1000);
+    recvfrom(udpsock, BUF, 1000,0,(struct sockaddr*) &recvfromaddr, &addrlen );
+    if (BUF[0] == 'A')
+    {
+        // ACK received
+        ack = true;
+    }
+    else if (BUF[0] == 'I')
+    {
+        // Initiate
+        // First send ACK
+        sendto(udpsock, "ACK", 3, 0, (struct sockaddr*) &recvfromaddr, addrlen);
+        int dest;
+        memcpy(&dest, BUF + sizeof(char), sizeof(int));
+        if (currentnode == dest)
+        {
+            // Is the destination
+            outputToFile("Packet initiated at the destination node, transmit complete.");
+        }
+        else if (forwardingtable.at(dest) == -1)
+        {
+            // Unreachable
+            outputToFile("Destination of the packet is unreachable at the current node. Transmit abort.");
+        }
+        else
+        {
+            // Send the packet to nexthop
+            memset(&myaddr, 0, sizeof(myaddr));
+            myaddr.sin_family=AF_INET;
+            inet_pton(AF_INET,"127.0.0.1",&myaddr.sin_addr.s_addr);
+            myaddr.sin_port=htons(port.at(forwardingtable.at(dest)));
+            buffer = new char[sizeof(char) + 3*sizeof(int)];
+            buffer[0] = 'T'; // T for transfer
+            memcpy(buffer + sizeof(char), &currentnode, sizeof(int));
+            memcpy(buffer + sizeof(char) + 1 * sizeof(int), &currentnode, sizeof(int));
+            memcpy(buffer + sizeof(char) + 2 * sizeof(int), &dest, sizeof(int));
+            //cout << currentnode << currentnode << dest << endl;
+            sendto(udpsock, buffer, sizeof(buffer), 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+            ack = false;
+            outputToFile("Packet to node " + to_string(dest) + " initiated at current node has been forwarded to nexthop:" + to_string(forwardingtable.at(dest)));
+            pthread_create(&thread, NULL, enforceack, NULL);
+            pthread_detach(thread);
+        }
+    }
+    else if (BUF[0] == 'T')
+    {
+        // Transfer
+        // First send ACK
+        sendto(udpsock, "ACK", 3, 0, (struct sockaddr*) &recvfromaddr, addrlen);
+        int src, transfer, dest;
+        memcpy(&src, BUF + sizeof(char), sizeof(int));
+        memcpy(&transfer, BUF + sizeof(char) + 1 * sizeof(int), sizeof(int));
+        memcpy(&dest, BUF + sizeof(char) + 2 * sizeof(int), sizeof(int));
+        //outputToFile("Source: " + to_string(src) + " Transfer: " + to_string(transfer) + " Dest: " + to_string(dest));
+        if (currentnode == dest)
+        {
+            // Is the destination
+            outputToFile("Packet initiated at node " + to_string(src) + " received from " + to_string(transfer) + " has reached its destination: node " + to_string(dest) + ". Transmit complete.");
+        }
+        else if (forwardingtable.at(dest) == -1)
+        {
+            // Unreachable
+            outputToFile("Destination of the packet is unreachable at the current node. Transmit abort.");
+        }
+        else
+        {
+            // Send the packet to nexthop
+            memset(&myaddr, 0, sizeof(myaddr));
+            myaddr.sin_family=AF_INET;
+            inet_pton(AF_INET,"127.0.0.1",&myaddr.sin_addr.s_addr);
+            myaddr.sin_port=htons(port.at(forwardingtable.at(dest)));
+            buffer = new char[sizeof(char) + 3*sizeof(int)];
+            buffer[0] = 'T';
+            memcpy(buffer + sizeof(char), &src, sizeof(int));
+            memcpy(buffer + sizeof(char) + 1 * sizeof(int), &currentnode, sizeof(int));
+            memcpy(buffer + sizeof(char) + 2 * sizeof(int), &dest, sizeof(int));
+            //cout << src << currentnode << dest << endl;
+            sendto(udpsock, buffer, sizeof(buffer), 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+            ack = false;
+            pthread_create(&thread, NULL, enforceack, NULL);
+            pthread_detach(thread);
+            outputToFile("Packet received from node " + to_string(transfer) + " initiated at node " + to_string(src) + " heading toward node " + to_string(dest) + " has been forwarded to nexthop:" + to_string(forwardingtable.at(dest)));
+        }
+    }
+    else if (BUF[0] == 'Q')
+    {
+        // Quit
+        // First send ACK
+        sendto(udpsock, "ACK", 3, 0, (struct sockaddr*) &recvfromaddr, addrlen);
+        outputToFile("Received quit message from manager");
+        return -1;
+    }
+    else
+    {
+        // History packet, discard
+        return 0;
+    }
+    return 0;
+    // -1 for quit, 0 for normal
+}
