@@ -13,8 +13,7 @@
 #include <strings.h>
 #include <cstring>
 #include <ctime>
-#include "dijkstra.h"
-
+#include <stdlib.h>
 
 
 using namespace std;
@@ -26,6 +25,15 @@ int ReadNumberFromString(string s)
     ss >> num;
     return num;
 }
+
+pair<int,int> getsrcdest(string line)
+{
+    stringstream ss(line);
+    int src, dest;
+    ss >> src >> dest;
+    return make_pair(src, dest);
+};
+
 
 string getcurrenttime()
 {
@@ -41,14 +49,6 @@ void PutCostinfoIntoVector(string s, vector<cost_info>& v_cost_info)
     v_cost_info.push_back(cost_info(source, destination, numcost));
     v_cost_info.push_back(cost_info(destination, source, numcost));
 }
-
-pair<int,int> getsrcdest(string line)
-{
-    stringstream ss(line);
-    int src, dest;
-    ss >> src >> dest;
-    return make_pair(src, dest);
-};
 
 int main(int argc, char* argv[]) {
     if (argc != 2)
@@ -132,7 +132,8 @@ int main(int argc, char* argv[]) {
     // Start creating router process
     vector<pid_t> vector_of_children;
     bool ischildren = false;
-    for (int i = 0; i < num_of_routers; i++)
+    int i = 0;
+    for (; i < num_of_routers; i++)
     {
         pid_t current_pid = fork();
         if (current_pid < 0)
@@ -154,9 +155,8 @@ int main(int argc, char* argv[]) {
     }
     if (ischildren)
     {
-        // ******************
-        // Child process here
-        // ******************
+        cout << "executing router process: " << i << endl;
+        execlp("router", "router", to_string(i).c_str(), to_string(port).c_str(), to_string(num_of_routers).c_str(), (char*) 0);
     }
     else
     {
@@ -187,7 +187,7 @@ int main(int argc, char* argv[]) {
             uint16_t portinfo;
             recv(vector_of_socket.at(i), &portinfo, sizeof(portinfo), MSG_WAITALL);
             vector_of_ports.push_back(portinfo);
-            output_file << "Received port number: " << portinfo << "from node " << i << " at " << getcurrenttime().c_str() << endl;
+            output_file << "Received port number: " << portinfo << " from node " << i << " at " << getcurrenttime().c_str() << endl;
         }
 
         // Send node number, neighbour info, cost info, port info to each of the routers

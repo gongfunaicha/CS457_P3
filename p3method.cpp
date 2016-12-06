@@ -183,7 +183,7 @@ char* buffer = 0;
 struct sockaddr_in myaddr;
 int udpsocket = 0;
 pthread_t thread;
-void enforceack()
+void* enforceack(void* ptr)
 {
     usleep(500);
     if (ack)
