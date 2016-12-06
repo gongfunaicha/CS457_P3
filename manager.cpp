@@ -372,6 +372,7 @@ int main(int argc, char* argv[]) {
         // Manager can now terminate
         close(listensock);
         topology_file.close();
+        output_file << "Manager quit at " << getcurrenttime().c_str() << endl;
         output_file.close();
         return 0;
     }

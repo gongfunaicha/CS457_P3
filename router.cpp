@@ -138,10 +138,10 @@ void recv_network_up_message(int sock)
     if (strcmp(networkupmsg, "Network up") != 0)
     {
         cerr << "Error when receving network up message from manager. " << networkupmsg << endl;
-        delete(networkupmsg);
+        // delete networkupmsg;
         exit(-1);
     }
-    delete(networkupmsg);
+    // delete(networkupmsg);
 }
 
 void send_forwarding_table_up_message(int sock)
@@ -307,11 +307,11 @@ int J_method(int tcp_port, int udp_port) {		//tcp_port is the port of the manage
     if (strcmp(safetoreachmsg, "Safe to reach") != 0)
     {
         cerr << "Error when receving safe to reach message from manager." << endl;
-        delete(safetoreachmsg);
+        // delete safetoreachmsg;
         exit(-1);
     }
     outputToFile("Received safe to reach message from manager");
-    delete(safetoreachmsg);
+    // delete safetoreachmsg;
 
     return sock;
 }
@@ -524,7 +524,6 @@ int main(int argc, char **argv)
                 memcpy(message + 1 + sizeof(int), &myID, sizeof(int));
                 sendto(udpSock, message, sizeof(message), 0, (struct sockaddr *)&(addr), sizeof(addr));
 
-
                 if(!pathsFrom[from]) {
                     pathsFrom[from] = true;
 
@@ -611,6 +610,25 @@ int main(int argc, char **argv)
 
     //send_forwarding_table_up_message(tcpsock);
 
+    outputToFile("Forwarding table: ");
+    string tempoutput;
+    for (int i = 0; i < forwarding_table.size(); i++)
+    {
+        if (i == myID)
+        {
+            tempoutput += ("Node: " + to_string(i) + " Nexthop: -\n");
+        }
+        else if (forwarding_table.at(i) == -1)
+        {
+            tempoutput += ("Node: " + to_string(i) + " Nexthop: Unreachable\n");
+        }
+        else
+        {
+            tempoutput += ("Node: " + to_string(i) + " Nexthop: " + to_string(forwarding_table.at(i)) + "\n");
+        }
+    }
+    outputFile << tempoutput << endl;
+
     // Getting ready for input packet
     int32_t length;
     recv(tcpsock, &length, sizeof(length), MSG_WAITALL);
@@ -621,10 +639,10 @@ int main(int argc, char **argv)
     if (strcmp(readytosendpacketmsg, "Ready to send packet") != 0)
     {
         cerr << "Error when receving ready to send packet message from manager. " << readytosendpacketmsg << endl;
-        delete(readytosendpacketmsg);
+        // delete readytosendpacketmsg;
         exit(-1);
     }
-    delete(readytosendpacketmsg);
+    // delete readytosendpacketmsg;
 
     // Setup tcp recv
 
@@ -648,10 +666,10 @@ int main(int argc, char **argv)
 
     pthread_join(thread, NULL);
 
-    //delete connections;
+    //// delete connections;
 
     outputToFile("Router quit");
-    outputFile.close();
+    //outputFile.close();
 }
 
 int openUDPSocket() {
@@ -684,6 +702,7 @@ int openUDPSocket() {
 }
 
 void openConnection(connection* conn) {
+    usleep(1000);
     sendACK(conn);
     outputToFile("sent initial ACK to node " + to_string(conn->id));
 }
@@ -726,6 +745,7 @@ void sendLinkState() {
 }
 
 bool ack = true;
+int size;
 char* buffer = 0;
 struct sockaddr_in myaddr;
 int udpsocket = 0;
@@ -736,13 +756,14 @@ void* enforceack(void* ptr)
     if (ack)
     {
         // ACK received, delete the buffer
-        delete(buffer);
+        if (buffer != 0)
+            // delete buffer;
         buffer = 0;
     }
     else
     {
         // ACK not receive, try resend
-        sendto(udpsocket, buffer, sizeof(buffer), 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+        sendto(udpsocket, buffer, size, 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
         pthread_create(&thread, NULL, enforceack, NULL);
         pthread_detach(thread);
     }
@@ -765,10 +786,11 @@ int recv_message_from_manager(int tcpsock, int udpsock, uint16_t selfport)
         myaddr.sin_family=AF_INET;
         inet_pton(AF_INET,"127.0.0.1",&myaddr.sin_addr.s_addr);
         myaddr.sin_port=htons(selfport);
-        buffer = new char[1 + sizeof(int)];
+        size = 1 + sizeof(int);
+        buffer = new char[size];
         buffer[0] = 'I'; // I for initiate
         memcpy(buffer + sizeof(char), &dest, sizeof(int));
-        sendto(udpsock, buffer, sizeof(buffer), 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+        sendto(udpsock, buffer, size, 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
         ack = false;
         pthread_create(&thread, NULL, enforceack, NULL);
         pthread_detach(thread);
@@ -784,10 +806,8 @@ int recv_message_from_manager(int tcpsock, int udpsock, uint16_t selfport)
         {
             cout << quitmsg << endl;
             cerr << "Error when receving quit message from manager." << endl;
-            delete(quitmsg);
-            _exit(-1);
+            exit(-1);
         }
-        delete(quitmsg);
         // Send udp packet to own udp server
         memset(&myaddr, 0, sizeof(myaddr));
         myaddr.sin_family=AF_INET;
@@ -795,7 +815,7 @@ int recv_message_from_manager(int tcpsock, int udpsock, uint16_t selfport)
         myaddr.sin_port=htons(selfport);
         buffer = new char[5];
         strcpy(buffer, "Quit");
-        sendto(udpsock, buffer, sizeof(buffer) - 1, 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+        sendto(udpsock, buffer, 4, 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
         ack = false;
         pthread_create(&thread, NULL, enforceack, NULL);
         pthread_join(thread, NULL);
@@ -810,13 +830,14 @@ void* tcpthread(void* input)
     return 0;
 }
 
+
 int recv_message_from_peer(int currentnode,int udpsock, vector<int> port, vector<int> forwardingtable)
 {
     struct sockaddr_in recvfromaddr;
     socklen_t  addrlen = sizeof(recvfromaddr);
     char BUF[1000];
     bzero(BUF,1000);
-    recvfrom(udpsock, BUF, 1000,0,(struct sockaddr*) &recvfromaddr, &addrlen );
+    recvfrom(udpsock, BUF, 1000, 0,(struct sockaddr*) &recvfromaddr, &addrlen );
     if (BUF[0] == 'A')
     {
         // ACK received
@@ -846,13 +867,13 @@ int recv_message_from_peer(int currentnode,int udpsock, vector<int> port, vector
             myaddr.sin_family=AF_INET;
             inet_pton(AF_INET,"127.0.0.1",&myaddr.sin_addr.s_addr);
             myaddr.sin_port=htons(port.at(forwardingtable.at(dest)));
-            buffer = new char[sizeof(char) + 3*sizeof(int)];
+            size = sizeof(char) + 3*sizeof(int);
+            buffer = new char[size];
             buffer[0] = 'T'; // T for transfer
             memcpy(buffer + sizeof(char), &currentnode, sizeof(int));
             memcpy(buffer + sizeof(char) + 1 * sizeof(int), &currentnode, sizeof(int));
             memcpy(buffer + sizeof(char) + 2 * sizeof(int), &dest, sizeof(int));
-            //cout << currentnode << currentnode << dest << endl;
-            sendto(udpsock, buffer, sizeof(buffer), 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+            sendto(udpsock, buffer, size, 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
             ack = false;
             outputToFile("Packet to node " + to_string(dest) + " initiated at current node has been forwarded to nexthop:" + to_string(forwardingtable.at(dest)));
             pthread_create(&thread, NULL, enforceack, NULL);
@@ -886,13 +907,14 @@ int recv_message_from_peer(int currentnode,int udpsock, vector<int> port, vector
             myaddr.sin_family=AF_INET;
             inet_pton(AF_INET,"127.0.0.1",&myaddr.sin_addr.s_addr);
             myaddr.sin_port=htons(port.at(forwardingtable.at(dest)));
-            buffer = new char[sizeof(char) + 3*sizeof(int)];
+            size = sizeof(char) + 3*sizeof(int);
+            buffer = new char[size];
             buffer[0] = 'T';
             memcpy(buffer + sizeof(char), &src, sizeof(int));
             memcpy(buffer + sizeof(char) + 1 * sizeof(int), &currentnode, sizeof(int));
             memcpy(buffer + sizeof(char) + 2 * sizeof(int), &dest, sizeof(int));
             //cout << src << currentnode << dest << endl;
-            sendto(udpsock, buffer, sizeof(buffer), 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+            sendto(udpsock, buffer, size, 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
             ack = false;
             pthread_create(&thread, NULL, enforceack, NULL);
             pthread_detach(thread);
