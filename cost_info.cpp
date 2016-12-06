@@ -10,3 +10,10 @@ cost_info::cost_info(int source, int destination, int numcost)
     dest = destination;
     cost = numcost;
 }
+
+cost_info::cost_info(const cost_info &other)
+{
+    src = other.src;
+    dest = other.dest;
+    cost = other.cost;
+}

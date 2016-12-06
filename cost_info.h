@@ -12,6 +12,7 @@ public:
     int dest;
     int cost;
     cost_info(int source, int destination, int numcost);
+    cost_info(const cost_info& other);
 };
 
 

@@ -13,6 +13,8 @@
 #include <strings.h>
 #include <cstring>
 #include <ctime>
+#include "dijkstra.h"
+
 
 
 using namespace std;
@@ -39,6 +41,14 @@ void PutCostinfoIntoVector(string s, vector<cost_info>& v_cost_info)
     v_cost_info.push_back(cost_info(source, destination, numcost));
     v_cost_info.push_back(cost_info(destination, source, numcost));
 }
+
+pair<int,int> getsrcdest(string line)
+{
+    stringstream ss(line);
+    int src, dest;
+    ss >> src >> dest;
+    return make_pair(src, dest);
+};
 
 int main(int argc, char* argv[]) {
     if (argc != 2)
@@ -221,7 +231,7 @@ int main(int argc, char* argv[]) {
         // Receive ready message from all the routers
         for (int i = 0; i < num_of_routers; i++)
         {
-            uint32_t length;
+            int32_t length;
             recv(vector_of_socket.at(i), &length, sizeof(length), MSG_WAITALL);
             char* readymsg = new char[length+1];
             bzero(readymsg, length);
@@ -240,7 +250,7 @@ int main(int argc, char* argv[]) {
         // Send info that is safe to reach neighbours
         for (int i = 0; i < num_of_routers; i++)
         {
-            uint32_t length;
+            int32_t length;
             string message = "Safe to reach";
             length = message.length();
             send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
@@ -252,7 +262,7 @@ int main(int argc, char* argv[]) {
         // Receive link up message from all the routers
         for (int i = 0; i < num_of_routers; i++)
         {
-            uint32_t length;
+            int32_t length;
             recv(vector_of_socket.at(i), &length, sizeof(length), MSG_WAITALL);
             char* linkupmsg = new char[length+1];
             bzero(linkupmsg, length);
@@ -271,7 +281,7 @@ int main(int argc, char* argv[]) {
         // Send info that network is up
         for (int i = 0; i < num_of_routers; i++)
         {
-            uint32_t length;
+            int32_t length;
             string message = "Network up";
             length = message.length();
             send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
@@ -283,7 +293,7 @@ int main(int argc, char* argv[]) {
         // Receive forwarding table up message from all the routers
         for (int i = 0; i < num_of_routers; i++)
         {
-            uint32_t length;
+            int32_t length;
             recv(vector_of_socket.at(i), &length, sizeof(length), MSG_WAITALL);
             char* forwardingtableupmsg = new char[length+1];
             bzero(forwardingtableupmsg, length);
@@ -302,7 +312,7 @@ int main(int argc, char* argv[]) {
         // Send info that network is ready to send packet
         for (int i = 0; i < num_of_routers; i++)
         {
-            uint32_t length;
+            int32_t length;
             string message = "Ready to send packet";
             length = message.length();
             send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
@@ -323,14 +333,23 @@ int main(int argc, char* argv[]) {
             }
             else
             {
-                // TODO: Initiate packet transmit
+                // Should be data transmit
+                pair<int,int> src_dest = getsrcdest(line);
+                int src = src_dest.first;
+                int dest = src_dest.second;
+                // send length = -1 to indicate transmit
+                int32_t length = -1;
+                send(vector_of_socket.at(src), &length, sizeof(int32_t), 0);
+                // Then send the actual buffer
+                send(vector_of_socket.at(src), &dest, sizeof(int), 0);
+                output_file << "Sent command to initiate a packet to node " << dest << " to node " << src <<" at " << getcurrenttime().c_str() << endl;
             }
         }
 
         // Signal all routers need to quit
         for (int i = 0; i < num_of_routers; i++)
         {
-            uint32_t length;
+            int32_t length;
             string message = "Quit";
             length = message.length();
             send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
