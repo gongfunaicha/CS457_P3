@@ -98,7 +98,7 @@ void update_adj(vector<element>& tentative, vector<element>& confirmed, vector<e
 
 void printout(vector<element>& confirmed, vector<element>& tentative, ofstream& outputFile)
 {
-    outputFile << "List in confirmed: " << endl;
+    outputFile << "Contents in confirmed: " << endl;
     bool first_print = true;
     for (int i = 0 ; i < confirmed.size(); i++)
     {
@@ -117,9 +117,12 @@ void printout(vector<element>& confirmed, vector<element>& tentative, ofstream& 
             strnexthop = to_string(nexthop);
         outputFile << "(" << destination << "," << distance << "," << strnexthop << ")";
     }
+    if (!confirmed.size())
+        outputFile << "Empty";
     outputFile << endl ;
     first_print = true;
-    outputFile << "List in tentative: " << endl;
+    bool printed  = false;
+    outputFile << "Contents in tentative: " << endl;
     for (int i = 0 ; i < tentative.size(); i++)
     {
         int destination = tentative.at(i).destination;
@@ -128,6 +131,7 @@ void printout(vector<element>& confirmed, vector<element>& tentative, ofstream& 
         int distance = tentative.at(i).distance;
         int nexthop = tentative.at(i).nexthop;
         string strnexthop;
+        printed = true;
         if (!first_print)
             outputFile << ",";
         else
@@ -138,12 +142,13 @@ void printout(vector<element>& confirmed, vector<element>& tentative, ofstream& 
             strnexthop = to_string(nexthop);
         outputFile << "(" << destination << "," << distance << "," << strnexthop << ")";
     }
+    if (!printed)
+        outputFile << "Empty";
     outputFile << endl << endl ;
 }
 
 vector<int> dijkstra(int current_node, vector<cost_info> v_cost_info, int num_of_nodes, ofstream& outputFile)
 {
-    cout << endl;
     vector<element> pool;
     vector<element> confirmed;
     vector<element> tentative;
@@ -171,7 +176,7 @@ vector<int> dijkstra(int current_node, vector<cost_info> v_cost_info, int num_of
         // Update adjcent distance
         update_adj(tentative, confirmed, pool, v_cost_info, numnode, distance, nexthop);
         time_t result = time(nullptr);
-        outputFile << "After round " << i++ << ": " << asctime(localtime(&result)) << endl;;
+        outputFile << "After round " << i++ << ": " << asctime(localtime(&result)) << flush;
         printout(confirmed, tentative, outputFile);
     }
 

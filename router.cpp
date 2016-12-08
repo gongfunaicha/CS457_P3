@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include "cost_info.h"
 #include "dijkstra.h"
+#include <cerrno>
 
 using namespace std;
 
@@ -47,18 +48,22 @@ struct nodePath {
 
 struct dijkstrainput{
     int currentnode;
-    vector<cost_info>& v_cost_info;
+    vector<cost_info> v_cost_info;
     int numofnodes;
     vector<int>& forwarding_table;
+    int tcpsock;
     int udpsock;
     int udpport;
     ofstream& outputFile;
-    dijkstrainput(int currnode, int numnodes, vector<cost_info> costinfo, vector<int>& forwardtable, int sock, int port, ofstream& output) : v_cost_info(costinfo), forwarding_table(forwardtable), outputFile(output)
+    dijkstrainput(int currnode, int numnodes, vector<cost_info> costinfo, vector<int>& forwardtable, int sock, int port, ofstream& output, int inputtcpsock) : forwarding_table(forwardtable), outputFile(output)
     {
         currentnode = currnode;
         numofnodes = numnodes;
         udpsock = sock;
         udpport = port;
+        tcpsock = inputtcpsock;
+        for (int i = 0 ; i < costinfo.size(); i++)
+            v_cost_info.push_back(costinfo.at(i));
     }
 };
 
@@ -80,20 +85,40 @@ void outputToFile(string message) {
     time_t result = time(nullptr);
     if (!gotID)
     {
-        tempbuffer += (message + "   at " + asctime(localtime(&result)) + "\n");
+        tempbuffer += (message + "   at " + asctime(localtime(&result)));
     }
     else
     {
-        outputFile << tempbuffer << message << "   at " << asctime(localtime(&result)) << endl;
+        outputFile << tempbuffer << message << "   at " << asctime(localtime(&result)) << flush;
         tempbuffer = "";
     }
 }
+
+
+void send_forwarding_table_up_message(int sock)
+{
+    int32_t  length;
+    string message = "Forwarding table up";
+    /*
+     * Packet format:
+     * First send a int32_t packet with the size of the total packet.
+     * Then send a packet using the following format:
+     * "Forwarding table up" without terminating zero
+     */
+    length = message.length();
+    send(sock, &length, sizeof(int32_t), 0);
+    // Then send the actual buffer
+    send(sock, message.c_str(), length, 0);
+    outputToFile("Dijkstra algorithm complete");
+}
+
 
 
 void* dijkstrathread(void* input)
 {
     dijkstrainput* dinput = (dijkstrainput*)input;
     dinput->forwarding_table = dijkstra(dinput->currentnode, dinput->v_cost_info, dinput->numofnodes, dinput->outputFile);
+    send_forwarding_table_up_message(dinput->tcpsock);
     // Dijkstra over, time to stop
     // First wait for 0.5 second for all the ACKs to stop
     usleep(500);
@@ -102,8 +127,13 @@ void* dijkstrathread(void* input)
     myaddr.sin_family=AF_INET;
     inet_pton(AF_INET,"127.0.0.1",&myaddr.sin_addr.s_addr);
     myaddr.sin_port=htons(dinput->udpport);
+    /*
+     * Packet format:
+     * Send a char packet with value (2) to self udp port to signal dijkstra ends
+     */
     char tosend = 2;
-    sendto(dinput->udpsock, &tosend, sizeof(char), 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+    while (sendto(dinput->udpsock, &tosend, sizeof(char), 0, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0)
+        usleep(10);
     return 0;
 }
 
@@ -118,6 +148,12 @@ void send_link_up_message(int sock)
 {
     int32_t length;
     string message = "Link up";
+    /*
+     * Packet format:
+     * First send a int32_t packet with the size of the total packet.
+     * Then send a packet using the following format:
+     * "Link up" without terminating zero
+     */
     length = message.length();
     send(sock, &length, sizeof(int32_t), 0);
     // Then send the actual buffer
@@ -144,15 +180,6 @@ void recv_network_up_message(int sock)
     // delete(networkupmsg);
 }
 
-void send_forwarding_table_up_message(int sock)
-{
-    int32_t  length;
-    string message = "Forwarding table up";
-    length = message.length();
-    send(sock, &length, sizeof(int32_t), 0);
-    // Then send the actual buffer
-    send(sock, message.c_str(), length, 0);
-}
 
 
 
@@ -168,7 +195,7 @@ void send_forwarding_table_up_message(int sock)
 
 
 
-int openUDPSocket();
+int openUDPSocket(int);
 void clearACKs();
 void processInfo(nodePath* path);
 void openConnection(connection* conn);
@@ -190,8 +217,18 @@ void sendACK(connection* conn) {
     char message[1 + sizeof(int)];
     message[0] = 1;
     memcpy(message + 1, &myID, sizeof(int));
-    if(sendto(udpSock, &message, 1 + sizeof(int), 0, (struct sockaddr *)&(conn->remaddr), sizeof(conn->remaddr)) < 0) {
-        cout << "ERROR SENDING ACK" << endl;
+    /*
+     * Packet format:
+     * 1(char)ID(int)
+     */
+    int num_try = 0;
+    while ((num_try < 10) && (sendto(udpSock, &message, 1 + sizeof(int), 0, (struct sockaddr *)&(conn->remaddr), sizeof(conn->remaddr)) < 0)) {
+        num_try ++ ;
+    }
+    if (num_try == 10)
+    {
+        perror("ERROR SENDING ACK");
+        outputToFile("ERROR SENDING ACK");
     }
 }
 bool receivedACKs() {
@@ -244,6 +281,11 @@ int J_method(int tcp_port, int udp_port) {		//tcp_port is the port of the manage
 
     uint16_t out = (udp_port);
 
+    /*
+     * Packet format:
+     * Send a uint16_t packet with value (udp_port).
+     */
+
     send(sock, &out, sizeof(uint16_t), 0); //Send the UDP port number
 
     // Receive node number, cost info
@@ -258,11 +300,11 @@ int J_method(int tcp_port, int udp_port) {		//tcp_port is the port of the manage
     int nodenumber = 0;
     memcpy(&nodenumber, nodeinfo, sizeof(int));
     myID = nodenumber;
-    string fileName = to_string(myID) + ".out";
+    string fileName = "router" + to_string(myID) + ".out";
     gotID = true;
     outputFile.open(fileName);
 
-    //outputToFile("My ID is now: " + to_string(myID));
+    outputToFile("Received NodeID from manager: " + to_string(myID));
 
     connections = new connection[num_of_neighbours];
     connectionCount = num_of_neighbours;
@@ -294,6 +336,12 @@ int J_method(int tcp_port, int udp_port) {		//tcp_port is the port of the manage
 
     string message = "Ready";
     length = message.length();
+    /*
+     * Packet format:
+     * First send a int32_t packet with the size of the total packet.
+     * Then send a packet using the following format:
+     * "Ready" without terminating zero
+     */
     send(sock, &length, sizeof(int32_t), 0);
     // Then send the actual buffer
     send(sock, message.c_str(), length, 0);
@@ -331,7 +379,12 @@ struct packet {
 vector<packet*> packets;
 void sendPacketUtil(packet* pack) {
     pack->sent = clock();
-    sendto(udpSock, pack->message, pack->length, 0, (struct sockaddr *)&(pack->conn->remaddr), sizeof(pack->conn->remaddr));
+    /*
+     * Packet format:
+     * See comments when packing the packet
+     */
+    while (sendto(udpSock, pack->message, pack->length, 0, (struct sockaddr *)&(pack->conn->remaddr), sizeof(pack->conn->remaddr)) < 0)
+        usleep(10);
     outputToFile("sent packet to " + to_string(pack->conn->id) + " with sequence number " + to_string(*((int*)(pack->message + 1))));
 }
 void sendPacket(packet* pack) {
@@ -389,7 +442,7 @@ void sendLinkState();
 
 int main(int argc, char **argv)
 {
-    //myID = atoi(argv[1]);
+    int ID = atoi(argv[1]);
     nodeCount = atoi(argv[3]);
 
     //initialize the nodes
@@ -398,11 +451,11 @@ int main(int argc, char **argv)
         pathsFrom[n] = false;
     }
 
-    outputToFile("beginning router process");
+    outputToFile("Beginning router process");
 
     int tcpport = atoi(argv[2]);
 
-    int udpport = openUDPSocket();
+    int udpport = openUDPSocket(ID);
 
     int tcpsock = J_method(tcpport, udpport);
 
@@ -522,7 +575,12 @@ int main(int argc, char **argv)
                 message[0] = 1;
                 memcpy(message + 1, &seq, sizeof(int));
                 memcpy(message + 1 + sizeof(int), &myID, sizeof(int));
-                sendto(udpSock, message, sizeof(message), 0, (struct sockaddr *)&(addr), sizeof(addr));
+                /*
+                 * Packet format:
+                 * 1(char)sequence_number(int)myID(int)
+                 */
+                while (sendto(udpSock, message, sizeof(message), 0, (struct sockaddr *)&(addr), sizeof(addr)) < 0)
+                    usleep(10);
 
                 if(!pathsFrom[from]) {
                     pathsFrom[from] = true;
@@ -552,6 +610,10 @@ int main(int argc, char **argv)
                             memcpy(message + 1, &seq, sizeof(int));
                             memcpy(message + 1 + sizeof(int), &myID, sizeof(int));
 
+                            /*
+                             * Packet format:
+                             * 0(char)sequence_number(int)myID(int)rest_of_received_link_state_packet(various length)
+                             */
 
                             packet* p = new packet();
                             p->message = message;
@@ -578,7 +640,6 @@ int main(int argc, char **argv)
             // Gather the edge info
             if (!printededgeinfo)
             {
-                send_forwarding_table_up_message(tcpsock);
                 vector<cost_info> v_cost_info;
                 for (int j = 0; j < allPaths.size(); j++)
                 {
@@ -591,25 +652,25 @@ int main(int argc, char **argv)
                 string edgeoutput;
                 for (int j = 0; j < v_cost_info.size(); j++)
                 {
-                    //if (v_cost_info.at(j).src < v_cost_info.at(j).dest)
+                    if (v_cost_info.at(j).src < v_cost_info.at(j).dest)
                         edgeoutput += (to_string(v_cost_info.at(j).src) + " " + to_string(v_cost_info.at(j).dest) + " " + to_string(v_cost_info.at(j).cost) + "\n");
                 }
+                outputFile << endl;
                 outputToFile("Gathered edge information:");
                 outputFile << edgeoutput << endl;
                 printededgeinfo = true;
 
                 // Start dijkstra thread
                 pthread_t thread;
-                dijkstrainput input(myID, nodeCount, v_cost_info, forwarding_table, udpSock, udpport, outputFile);
-                pthread_create(&thread, NULL, dijkstrathread, (void*)&input);
+                dijkstrainput* input = new dijkstrainput(myID, nodeCount, v_cost_info, forwarding_table, udpSock, udpport, outputFile, tcpsock);
+                pthread_create(&thread, NULL, dijkstrathread, (void*)input);
                 pthread_detach(thread);
             }
         }
         usleep(250);
     }
 
-    //send_forwarding_table_up_message(tcpsock);
-
+    outputFile << endl;
     outputToFile("Forwarding table: ");
     string tempoutput;
     for (int i = 0; i < forwarding_table.size(); i++)
@@ -669,12 +730,15 @@ int main(int argc, char **argv)
     //// delete connections;
 
     outputToFile("Router quit");
+    outputFile << endl;
+    close(tcpsock);
+    close(udpSock);
     //outputFile.close();
 }
 
-int openUDPSocket() {
+int openUDPSocket(int ID) {
     //create a UDP socket
-    int port = 50123;
+    int port = 55555 + ID;
 
     if ((udpSock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("cannot create socket\n");
@@ -685,12 +749,12 @@ int openUDPSocket() {
     flags |= O_NONBLOCK;
     fcntl(udpSock, F_SETFL, flags);
 
-    for(;;) {
+    while (port <= 65535) {
         struct sockaddr_in myaddr;
         memset((char *)&myaddr, 0, sizeof(myaddr));
         myaddr.sin_family = AF_INET;
         myaddr.sin_addr.s_addr = htonl(INADDR_ANY);
-        myaddr.sin_port = htons(port);
+        myaddr.sin_port = htons((uint16_t)port);
 
         if(bind(udpSock, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0) {
             port++;
@@ -698,6 +762,11 @@ int openUDPSocket() {
             outputToFile("UDP Socket opened on port " + to_string(port));
             return port;
         }
+    }
+    if (port == 65536)
+    {
+        cerr << "No available UDP port on this computer, program will now exit." << endl;
+        exit(-1);
     }
 }
 
@@ -726,13 +795,18 @@ void sendLinkState() {
 
         for(int o = 0; o < connectionCount; o++) {
             //if(c != o) {
-                nodePath* path = (nodePath*) (buffer + 1 + sizeof(int) * 4 + sizeof(nodePath) * index);
-                path->from = myID;
-                path->to = connections[o].id;
-                path->distance = connections[o].cost;
-                index++;
+            nodePath* path = (nodePath*) (buffer + 1 + sizeof(int) * 4 + sizeof(nodePath) * index);
+            path->from = myID;
+            path->to = connections[o].id;
+            path->distance = connections[o].cost;
+            index++;
             //}
         }
+
+        /*
+         * Packet format:
+         * 0(char)sequence_number(int)num_of_neighbours(int)myID(int)(link_state_info(nodePath)*num_of_neighbours)
+         */
 
         packet* p = new packet();
         p->message = buffer;
@@ -758,12 +832,13 @@ void* enforceack(void* ptr)
         // ACK received, delete the buffer
         if (buffer != 0)
             // delete buffer;
-        buffer = 0;
+            buffer = 0;
     }
     else
     {
         // ACK not receive, try resend
-        sendto(udpsocket, buffer, size, 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+        while (sendto(udpsocket, buffer, size, 0, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0)
+            usleep(10);
         pthread_create(&thread, NULL, enforceack, NULL);
         pthread_detach(thread);
     }
@@ -790,7 +865,12 @@ int recv_message_from_manager(int tcpsock, int udpsock, uint16_t selfport)
         buffer = new char[size];
         buffer[0] = 'I'; // I for initiate
         memcpy(buffer + sizeof(char), &dest, sizeof(int));
-        sendto(udpsock, buffer, size, 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+        /*
+         * Packet format:
+         * 'I'(chat)destination(int)
+         */
+        while (sendto(udpsock, buffer, size, 0, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0)
+            usleep(10);
         ack = false;
         pthread_create(&thread, NULL, enforceack, NULL);
         pthread_detach(thread);
@@ -815,7 +895,12 @@ int recv_message_from_manager(int tcpsock, int udpsock, uint16_t selfport)
         myaddr.sin_port=htons(selfport);
         buffer = new char[5];
         strcpy(buffer, "Quit");
-        sendto(udpsock, buffer, 4, 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+        /*
+         * Packet format:
+         * "Quit"
+         */
+        while (sendto(udpsock, buffer, 4, 0, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0)
+            usleep(10);
         ack = false;
         pthread_create(&thread, NULL, enforceack, NULL);
         pthread_join(thread, NULL);
@@ -847,7 +932,12 @@ int recv_message_from_peer(int currentnode,int udpsock, vector<int> port, vector
     {
         // Initiate
         // First send ACK
-        sendto(udpsock, "ACK", 3, 0, (struct sockaddr*) &recvfromaddr, addrlen);
+        /*
+         * Packet format:
+         * "ACK"
+         */
+        while (sendto(udpsock, "ACK", 3, 0, (struct sockaddr*) &recvfromaddr, addrlen) < 0)
+            usleep(10);
         int dest;
         memcpy(&dest, BUF + sizeof(char), sizeof(int));
         if (currentnode == dest)
@@ -873,7 +963,12 @@ int recv_message_from_peer(int currentnode,int udpsock, vector<int> port, vector
             memcpy(buffer + sizeof(char), &currentnode, sizeof(int));
             memcpy(buffer + sizeof(char) + 1 * sizeof(int), &currentnode, sizeof(int));
             memcpy(buffer + sizeof(char) + 2 * sizeof(int), &dest, sizeof(int));
-            sendto(udpsock, buffer, size, 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+            /*
+             * Packet format:
+             * 'T'(char)source_node(int)transfer_node(int)destination_node(int)
+             */
+            while (sendto(udpsock, buffer, size, 0, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0)
+                usleep(10);
             ack = false;
             outputToFile("Packet to node " + to_string(dest) + " initiated at current node has been forwarded to nexthop:" + to_string(forwardingtable.at(dest)));
             pthread_create(&thread, NULL, enforceack, NULL);
@@ -884,7 +979,12 @@ int recv_message_from_peer(int currentnode,int udpsock, vector<int> port, vector
     {
         // Transfer
         // First send ACK
-        sendto(udpsock, "ACK", 3, 0, (struct sockaddr*) &recvfromaddr, addrlen);
+        /*
+         * Packet format:
+         * "ACK"
+         */
+        while (sendto(udpsock, "ACK", 3, 0, (struct sockaddr*) &recvfromaddr, addrlen) < 0)
+            usleep(10);
         int src, transfer, dest;
         memcpy(&src, BUF + sizeof(char), sizeof(int));
         memcpy(&transfer, BUF + sizeof(char) + 1 * sizeof(int), sizeof(int));
@@ -913,8 +1013,12 @@ int recv_message_from_peer(int currentnode,int udpsock, vector<int> port, vector
             memcpy(buffer + sizeof(char), &src, sizeof(int));
             memcpy(buffer + sizeof(char) + 1 * sizeof(int), &currentnode, sizeof(int));
             memcpy(buffer + sizeof(char) + 2 * sizeof(int), &dest, sizeof(int));
-            //cout << src << currentnode << dest << endl;
-            sendto(udpsock, buffer, size, 0, (struct sockaddr *)&myaddr, sizeof(myaddr));
+            /*
+             * Packet format:
+             * 'T'(char)source_node(int)transfer_node(int)destination_node(int)
+             */
+            while (sendto(udpsock, buffer, size, 0, (struct sockaddr *)&myaddr, sizeof(myaddr)) < 0)
+                usleep(10);
             ack = false;
             pthread_create(&thread, NULL, enforceack, NULL);
             pthread_detach(thread);
@@ -925,7 +1029,12 @@ int recv_message_from_peer(int currentnode,int udpsock, vector<int> port, vector
     {
         // Quit
         // First send ACK
-        sendto(udpsock, "ACK", 3, 0, (struct sockaddr*) &recvfromaddr, addrlen);
+        /*
+         * Packet format:
+         * "ACK"
+         */
+        while (sendto(udpsock, "ACK", 3, 0, (struct sockaddr*) &recvfromaddr, addrlen) < 0)
+            usleep(10);
         outputToFile("Received quit message from manager");
         return -1;
     }

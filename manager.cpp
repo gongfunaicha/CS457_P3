@@ -4,7 +4,6 @@
 #include <sstream>
 #include <string>
 #include "cost_info.h"
-#include "dijkstra.h"
 #include <vector>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -127,7 +126,7 @@ int main(int argc, char* argv[]) {
     }
     listen(listensock, 10);
     cout << "Server listen on port: " << port << endl;
-    output_file << "Server listen on port: " << port << " at " << getcurrenttime().c_str() << endl;
+    output_file << "Server listen on port: " << port << " at " << getcurrenttime().c_str() << flush;
 
     // Start creating router process
     vector<pid_t> vector_of_children;
@@ -177,7 +176,7 @@ int main(int argc, char* argv[]) {
                 return -1;
             }
             vector_of_socket.push_back(connected_sock);
-            output_file << "Node " << i << " just connected at " << getcurrenttime().c_str() << endl;
+            output_file << "Node " << i << " just connected at " << getcurrenttime().c_str() << flush;
         }
 
         // Get port information from all the routers
@@ -187,7 +186,7 @@ int main(int argc, char* argv[]) {
             uint16_t portinfo;
             recv(vector_of_socket.at(i), &portinfo, sizeof(portinfo), MSG_WAITALL);
             vector_of_ports.push_back(portinfo);
-            output_file << "Received port number: " << portinfo << " from node " << i << " at " << getcurrenttime().c_str() << endl;
+            output_file << "Received port number: " << portinfo << " from node " << i << " at " << getcurrenttime().c_str() << flush;
         }
 
         // Send node number, neighbour info, cost info, port info to each of the routers
@@ -218,14 +217,20 @@ int main(int argc, char* argv[]) {
                 memcpy(sendbuffer + start, &cost, sizeof(int));
                 start += sizeof(int);
                 memcpy(sendbuffer + start, &port, sizeof(uint16_t));
-                output_file << neighbour << "at port " << port << " with link cost " << cost << endl;
+                output_file << neighbour << " at port " << port << " with link cost " << cost << endl;
             }
+            /*
+             * Packet format:
+             * First send a int32_t packet indicating the size of the total packet.
+             * Then send a packet using the following format:
+             * <node_number>(int)(<neighbour_node_number>(int)<cost>(int)<port>(uint16_t)) * num_of_neighbours
+             */
             // Sendbuffer should be ready, now send the length
             int32_t sendsize = size;
             send(vector_of_socket.at(i), &sendsize, sizeof(int32_t), 0);
             // Then send the actual buffer
             send(vector_of_socket.at(i), sendbuffer, sendsize, 0);
-            output_file << "at " << getcurrenttime().c_str() << endl;
+            output_file << "at " << getcurrenttime().c_str() << flush;
         }
 
         // Receive ready message from all the routers
@@ -243,7 +248,7 @@ int main(int argc, char* argv[]) {
                 delete(readymsg);
                 return -1;
             }
-            output_file << "Received ready message from node " << i << " at " << getcurrenttime().c_str() << endl;
+            output_file << "Received ready message from node " << i << " at " << getcurrenttime().c_str() << flush;
             delete(readymsg);
         }
 
@@ -253,10 +258,16 @@ int main(int argc, char* argv[]) {
             int32_t length;
             string message = "Safe to reach";
             length = message.length();
+            /*
+             * Packet format:
+             * First send a int32_t packet indicating the size of the total packet.
+             * Then send a packet using the following format:
+             * "Safe to reach" without terminating zero
+             */
             send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
             // Then send the actual buffer
             send(vector_of_socket.at(i), message.c_str(), length, 0);
-            output_file << "Sent it is safe to reach neighbours to node " << i << " at " << getcurrenttime().c_str() << endl;
+            output_file << "Sent it is safe to reach neighbours to node " << i << " at " << getcurrenttime().c_str() << flush;
         }
 
         // Receive link up message from all the routers
@@ -275,7 +286,7 @@ int main(int argc, char* argv[]) {
                 return -1;
             }
             delete(linkupmsg);
-            output_file << "Recieved link up message from node " << i << " at " << getcurrenttime().c_str() << endl;
+            output_file << "Recieved link up message from node " << i << " at " << getcurrenttime().c_str() << flush;
         }
 
         // Send info that network is up
@@ -284,10 +295,16 @@ int main(int argc, char* argv[]) {
             int32_t length;
             string message = "Network up";
             length = message.length();
+            /*
+             * Packet format:
+             * First send a int32_t packet indicating the size of the total packet.
+             * Then send a packet using the following format:
+             * "Network up" without terminating zero
+             */
             send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
             // Then send the actual buffer
             send(vector_of_socket.at(i), message.c_str(), length, 0);
-            output_file << "Sent network up message to node " << i << " at " << getcurrenttime().c_str() << endl;
+            output_file << "Sent network up message to node " << i << " at " << getcurrenttime().c_str() << flush;
         }
 
         // Receive forwarding table up message from all the routers
@@ -306,7 +323,7 @@ int main(int argc, char* argv[]) {
                 return -1;
             }
             delete(forwardingtableupmsg);
-            output_file << "Received forwarding table up message from node " << i << " at " << getcurrenttime().c_str() << endl;
+            output_file << "Received forwarding table up message from node " << i << " at " << getcurrenttime().c_str() << flush;
         }
 
         // Send info that network is ready to send packet
@@ -315,10 +332,16 @@ int main(int argc, char* argv[]) {
             int32_t length;
             string message = "Ready to send packet";
             length = message.length();
+            /*
+             * Packet format:
+             * First send a int32_t packet indicating the size of the total packet.
+             * Then send a packet using the following format:
+             * "Ready to send packet" without terminating zero
+             */
             send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
             // Then send the actual buffer
             send(vector_of_socket.at(i), message.c_str(), length, 0);
-            output_file << "Sent network is ready message to node " << i << " at " << getcurrenttime().c_str() << endl;
+            output_file << "Sent network is ready message to node " << i << " at " << getcurrenttime().c_str() << flush;
         }
 
 
@@ -338,14 +361,19 @@ int main(int argc, char* argv[]) {
                 pair<int,int> src_dest = getsrcdest(line);
                 int src = src_dest.first;
                 int dest = src_dest.second;
+                /*
+                 * Packet format:
+                 * First send a int32_t packet with value "-1" indicating transmission
+                 * Then send a int packet with value (destination)
+                 */
                 // send length = -1 to indicate transmit
                 int32_t length = -1;
                 send(vector_of_socket.at(src), &length, sizeof(int32_t), 0);
                 // Then send the actual buffer
                 send(vector_of_socket.at(src), &dest, sizeof(int), 0);
-                output_file << "Sent command to initiate a packet from node " << dest << " to node " << src <<" at " << getcurrenttime().c_str() << endl;
+                output_file << "Sent command to initiate a packet from node " << dest << " to node " << src <<" at " << getcurrenttime().c_str() << flush;
                 usleep(500000);
-                output_file << "Sleep for half second for router to process the transmission at " << getcurrenttime().c_str() << endl;
+                output_file << "Sleep for half second for router to process the transmission at " << getcurrenttime().c_str() << flush;
             }
         }
 
@@ -354,12 +382,18 @@ int main(int argc, char* argv[]) {
         {
             int32_t length;
             string message = "Quit";
+            /*
+             * Packet format:
+             * First send a int32_t packet with the size of the total packet.
+             * Then send a packet using the following format:
+             * "Quit" without terminating zero
+             */
             length = message.length();
             send(vector_of_socket.at(i), &length, sizeof(int32_t), 0);
             // Then send the actual buffer
             send(vector_of_socket.at(i), message.c_str(), length, 0);
 
-            output_file << "Sent quit message to node " << i << " at " << getcurrenttime().c_str() << endl;
+            output_file << "Sent quit message to node " << i << " at " << getcurrenttime().c_str() << flush;
 
             // Close the socket of that router
             close(vector_of_socket.at(i));
@@ -372,7 +406,8 @@ int main(int argc, char* argv[]) {
         // Manager can now terminate
         close(listensock);
         topology_file.close();
-        output_file << "Manager quit at " << getcurrenttime().c_str() << endl;
+        output_file << "Manager quit at " << getcurrenttime().c_str() << flush;
+        cout << "Manager quit at " << getcurrenttime().c_str() << endl;
         output_file.close();
         return 0;
     }

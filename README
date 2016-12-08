@@ -1,0 +1,15 @@
+This is a project that simulates the link-state protocol in a simulated network and do packet transmit simulation.
+
+Type "make" to compile and link the project
+
+Usage: ./manager <topology file>
+
+A sample topology file named topology_sample is given with the tar ball.
+
+
+Brief introduction to the project:
+The project is composed of two parts, one is manager, and the other is router. There might be multiple router processes running concurrently, but there can be only one manager. The manager has all the information in the simulated network and is in charge of telling routers what thier neighbours are, what are their neighbours' ports, when it is safe to reach the neighbours, when he is going to send out simulated transmit packets. In contrast, the routers have limited view of the network, they only know their neighbours at first, after the link state packets are flooded, they have the whole view of the network, but still cannot reach nodes other than their neighbours. Each router use dijkstra algorithm to compute the shorest path from it to any other nodes in the same network and build up the forwarding table from the result of the dijkstra. After the forwarding tables are built, we can simulate the packet transmission inside the network.
+
+
+Known issues:
+In really really rare circumstances, there might be "ERROR SENDING ACK" error. The error should be solved by rerunning the program.
