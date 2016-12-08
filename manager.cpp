@@ -406,8 +406,10 @@ int main(int argc, char* argv[]) {
         // Manager can now terminate
         close(listensock);
         topology_file.close();
+        // Wait for router to cout
+        usleep(50000);
         output_file << "Manager quit at " << getcurrenttime().c_str() << flush;
-        cout << "Manager quit at " << getcurrenttime().c_str() << endl;
+        cout << "Manager quit at " << getcurrenttime().c_str() << flush;
         output_file.close();
         return 0;
     }

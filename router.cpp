@@ -731,6 +731,8 @@ int main(int argc, char **argv)
 
     outputToFile("Router quit");
     outputFile << endl;
+    time_t result = time(nullptr);
+    cout << "Router " << ID << " quit at " << asctime(localtime(&result)) << flush;
     close(tcpsock);
     close(udpSock);
     //outputFile.close();
